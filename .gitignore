@@ -1,0 +1,7 @@
+/data/images/
+/models/
+/papers/
+*.png
+*.jpg
+*.tif
+*.tiff
