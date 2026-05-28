@@ -9,7 +9,7 @@
 This project focuses on identifying archaeological looting pits in Egypt using satellite imagery. Following the security vacuum of 2011, many historical sites were subjected to illegal excavations. These "pits" are clearly visible from space, and this dataset was created to provide a foundation for automated detection.
 
 ##  Dataset Details
-The dataset consists of **230 image patches** categorized into two classes:
+The dataset consists of **500 image patches** categorized into two classes:
 *   **Looted:** Image patches showing clear evidence of illegal excavation pits.
 *   **Not Looted:** Image patches showing pristine terrain or natural desert features.
 
