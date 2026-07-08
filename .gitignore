@@ -1,6 +1,6 @@
 /data/images/
-/models/
-/papers/
+/models_ensemble/
+/research_papers/
 *.png
 *.jpg
 *.tif
