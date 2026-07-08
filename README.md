@@ -5,8 +5,11 @@
 [![Kaggle](https://img.shields.io/badge/Kaggle-035a7d?style=for-the-badge&logo=kaggle&logoColor=white)](https://www.kaggle.com/datasets/abdelazizamr837/egyptian-archaeological-site-looting)
 [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC%20BY--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
 
-## Project Overview
-This project focuses on identifying archaeological looting pits in Egypt using satellite imagery. Following the security vacuum of 2011, many historical sites were subjected to illegal excavations. These "pits" are visible from space, and this dataset was created to provide a foundation for automated detection.
+
+##  Project Overview
+Archaeological looting represents an irreversible threat to global cultural heritage. This project implements a Deep Learning classification system designed to flag looting signatures (unscientific excavation pits) across key Egyptian necropolises (Dahshur, Lisht, Saqqara, and the Eastern Desert).
+
+Rather than using generic computer vision backbones, this system leverages a **ResNet-50** backbone pre-trained using **MoCo (Momentum Contrast)** on self-supervised remote sensing data. This ensures the model is optimized for structural and spatial patterns unique to Earth Observation imagery.
 
 ##  Dataset Details
 The dataset consists of **508 image patches** categorized into two classes:
