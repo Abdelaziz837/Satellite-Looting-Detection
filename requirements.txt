@@ -7,3 +7,4 @@ uvicorn
 python-multipart
 boto3
 python-dotenv
+requests

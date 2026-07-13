@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Egypt Archaeological Satellite Monitor</title>
+    <!-- Leaflet.js Mapping Library -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Tailwind CSS for Responsive Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #map { height: 600px; width: 100%; border-radius: 12px; }
+        /* Custom scrollbar styling for results */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col p-6 md:p-10">
+
+    <div class="max-w-7xl mx-auto w-full flex-grow flex flex-col">
+        <!-- Header -->
+        <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-amber-500 tracking-wide">Egypt Archaeological Monitor</h1>
+                <p class="text-slate-400 text-sm md:text-base">Real-Time Satellite AI Looting Detection & Monitoring System</p>
+            </div>
+            <div id="status" class="bg-slate-800 px-5 py-2.5 rounded-full text-sm font-semibold border border-slate-700 tracking-wide transition-all duration-300">
+                Ready to Scan
+            </div>
+        </header>
+
+        <!-- Main Layout Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow">
+            
+            <!-- Map Column (Left) -->
+            <div class="lg:col-span-2 flex flex-col">
+                <div id="map" class="shadow-2xl border border-slate-800 flex-grow"></div>
+                <div class="mt-4 flex flex-col sm:flex-row gap-4">
+                    <button onclick="scanCurrentLocation()" class="flex-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 p-4 rounded-xl font-bold tracking-wider uppercase transition shadow-lg">
+                        Scan Current Map View (Run AI Inference)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dashboard/Analysis Column (Right) -->
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex flex-col justify-between max-h-[600px] overflow-y-auto">
+                <div>
+                    <h2 class="text-xl font-bold mb-4 border-b border-slate-700 pb-2 flex items-center gap-2">
+                        <span>🏺</span> Analysis Results
+                    </h2>
+                    
+                    <!-- Prediction Card -->
+                    <div id="resultCard" class="hidden">
+                        <!-- Scanned Satellite Patch Preview -->
+                        <div class="mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">AI Scanned Patch (256x256):</div>
+                        <img id="scannedImage" class="w-full rounded-xl mb-4 border border-slate-600 shadow-inner" src="" alt="Scanned Satellite Patch" />
+
+                        <!-- Prediction Outcome Badge -->
+                        <div id="predictionBadge" class="text-center py-4 rounded-xl text-2xl font-black mb-4 uppercase tracking-widest"></div>
+                        
+                        <!-- Probabilities and confidence bars -->
+                        <div class="space-y-4">
+                            <div>
+                                <div class="flex justify-between text-sm mb-1 font-semibold text-slate-300">
+                                    <span>Looting Probability</span>
+                                    <span id="probLooted">0%</span>
+                                </div>
+                                <div class="w-full bg-slate-700 h-3 rounded-full overflow-hidden">
+                                    <div id="barLooted" class="bg-red-500 h-3 rounded-full transition-all duration-700" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-sm mb-1 font-semibold text-slate-300">
+                                    <span>Not Looted Probability</span>
+                                    <span id="probNotLooted">0%</span>
+                                </div>
+                                <div class="w-full bg-slate-700 h-3 rounded-full overflow-hidden">
+                                    <div id="barNotLooted" class="bg-green-500 h-3 rounded-full transition-all duration-700" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="text-[10px] text-slate-500 italic text-center pt-2">
+                                Applied Decision Threshold: <span id="thresholdVal"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Placeholder before scan -->
+                    <div id="placeholder" class="text-slate-500 text-center py-24">
+                        <p class="text-4xl mb-4">🛰️</p>
+                        <p class="text-sm">Navigate the map to any location in Egypt, or select one of the top archaeological sites, and click "Scan" to run AI detection.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ----------------------------------------------------
+        // CONFIGURATION: Replace with your live Google Cloud Run URL
+        // ----------------------------------------------------
+        const API_BASE ="https://looting-detector-324769143328.us-central1.run.app"; 
+
+        // 1. Initialize Leaflet Map centered on Saqqara/Dahshur area
+        // MaxBounds restricts the user from panning completely outside of Egypt
+        const map = L.map('map', {
+            maxBounds: [[21, 24], [32.5, 37]], 
+            minZoom: 6,
+            maxZoom: 18
+        }).setView([29.871, 31.214], 13); 
+
+        // 2. Add high-resolution Satellite Imagery Layer (ESRI World Imagery)
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Imagery &copy; Esri &mdash; Sources: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        }).addTo(map);
+
+        // 3. Define the Top 10 Archaeological Sites in Egypt (with focus on high-risk/looted targets)
+        const sites = [
+            { name: "Saqqara (Step Pyramid Area)", coords: [29.8712, 31.2140] },
+            { name: "Dahshur (Bent Pyramid Area)", coords: [29.8080, 31.2054] },
+            { name: "Lisht Necropolis (Amenemhat I)", coords: [29.5670, 31.2210] },
+            { name: "Giza Plateau (Pyramids)", coords: [29.9773, 31.1325] },
+            { name: "Tanis / San al-Hagar (Highly Looted)", coords: [30.9774, 31.8791] },
+            { name: "Amarna / Akhetaten (Looting Target)", coords: [27.6517, 30.9022] },
+            { name: "Abydos (Temple of Seti I)", coords: [26.1844, 31.9189] },
+            { name: "Valley of the Kings (Luxor)", coords: [25.7401, 32.6018] },
+            { name: "Karnak Temple Complex", coords: [25.7188, 32.6573] },
+            { name: "Philae Temple (Aswan)", coords: [24.0250, 32.8841] }
+        ];
+
+        // 4. Add interactive map markers for each site
+        sites.forEach(site => {
+            const marker = L.marker(site.coords).addTo(map);
+            marker.bindPopup(`
+                <div class="text-slate-900 font-sans p-1">
+                    <b class="text-base">${site.name}</b><br>
+                    <span class="text-xs text-slate-500">Coords: ${site.coords[0].toFixed(3)}, ${site.coords[1].toFixed(3)}</span><br>
+                    <button onclick="map.setView([${site.coords[0]}, ${site.coords[1]}], 16); map.closePopup();" 
+                            class="mt-2 bg-amber-600 text-white font-semibold text-xs px-3 py-1.5 rounded hover:bg-amber-700 transition">
+                        Zoom to Site
+                    </button>
+                </div>
+            `);
+        });
+
+        // 5. Main function to call the backend predict-coordinates API
+        async function scanCurrentLocation() {
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            const status = document.getElementById('status');
+            
+            // Set visual scanning state
+            status.innerText = "Scanning Satellite Feed...";
+            status.className = "bg-amber-900 text-amber-200 px-5 py-2.5 rounded-full text-sm font-semibold border border-amber-500 animate-pulse";
+
+            try {
+                // Fetch the dynamic Mapbox patch image and run AI inference
+                const response = await fetch(`${API_BASE}/predict-coordinates?lat=${center.lat}&lon=${center.lng}&zoom=${zoom}`);
+                
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                
+                const data = await response.json();
+                displayResults(data);
+                
+                status.innerText = "Scan Complete";
+                status.className = "bg-green-950 text-green-200 px-5 py-2.5 rounded-full text-sm font-semibold border border-green-500";
+            } catch (e) {
+                console.error(e);
+                alert("Scan failed. Ensure your Google Cloud Run API is active, configured with the MAPBOX_ACCESS_TOKEN env variable, and accepting requests.");
+                status.innerText = "Ready to Scan";
+                status.className = "bg-slate-800 px-5 py-2.5 rounded-full text-sm font-semibold border border-slate-700";
+            }
+        }
+
+        // 6. Display inference results dynamically in the dashboard
+        function displayResults(data) {
+            document.getElementById('placeholder').classList.add('hidden');
+            document.getElementById('resultCard').classList.remove('hidden');
+            
+            // Render the scanned satellite image patch
+            const scannedImg = document.getElementById('scannedImage');
+            scannedImg.src = data.scanned_image_url;
+
+            // Render prediction outcome
+            const badge = document.getElementById('predictionBadge');
+            badge.innerText = data.prediction;
+            if (data.prediction === "Looted") {
+                badge.className = "bg-red-950 text-red-200 border border-red-500 text-center py-4 rounded-xl text-2xl font-black mb-4 uppercase tracking-widest";
+            } else {
+                badge.className = "bg-green-950 text-green-200 border border-green-500 text-center py-4 rounded-xl text-2xl font-black mb-4 uppercase tracking-widest";
+            }
+
+            // Render confidence scores
+            const lootedProb = data.probabilities.Looted;
+            const notLootedProb = data.probabilities.NotLooted;
+
+            document.getElementById('probLooted').innerText = (lootedProb * 100).toFixed(2) + "%";
+            document.getElementById('barLooted').style.width = (lootedProb * 100) + "%";
+
+            document.getElementById('probNotLooted').innerText = (notLootedProb * 100).toFixed(2) + "%";
+            document.getElementById('barNotLooted').style.width = (notLootedProb * 100) + "%";
+
+            document.getElementById('thresholdVal').innerText = data.threshold_applied;
+        }
+    </script>
+</body>
+</html>
