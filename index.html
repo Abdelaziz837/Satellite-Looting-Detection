@@ -571,7 +571,7 @@
                 <div class="text-slate-900 font-sans p-1">
                     <b class="text-base">${site.name}</b><br>
                     <span class="text-xs text-slate-500">Coords: ${site.coords[0].toFixed(3)}, ${site.coords[1].toFixed(3)}</span><br>
-                    <button onclick="map.setView([${site.coords[0]}, ${site.coords[1]}], 16); map.closePopup();"
+                    <button onclick="window._egyptMap.setView([${site.coords[0]}, ${site.coords[1]}], 16); window._egyptMap.closePopup();"
                             class="mt-2 bg-amber-600 text-white font-semibold text-xs px-3 py-1.5 rounded hover:bg-amber-700 transition">
                         Zoom to Site
                     </button>
