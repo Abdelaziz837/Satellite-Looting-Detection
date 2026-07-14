@@ -4,39 +4,363 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Egypt Archaeological Satellite Monitor</title>
+    <meta name="description" content="AI-powered satellite monitoring for archaeological looting detection across Egypt's heritage sites.">
     <!-- Leaflet.js Mapping Library -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <!-- Tailwind CSS for Responsive Styling -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Display + body type pairing: Space Grotesk (technical/geometric, reads like instrumentation)
+         paired with Inter (clean body text). Chosen to feel like mission-control / remote-sensing
+         tooling rather than a generic marketing page. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --sand: #c9a876;
+            --amber: #d97a2e;
+            --deep: #0b0f14;
+            --panel: #12181f;
+        }
+        html { scroll-behavior: smooth; }
+        body { font-family: 'Inter', sans-serif; background: var(--deep); }
+        .font-display { font-family: 'Space Grotesk', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+
         #map { height: 600px; width: 100%; border-radius: 12px; }
-        /* Custom scrollbar styling for results */
+
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #1e293b; }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+        /* Signature element: a scanline sweep across the hero, evoking a satellite pass */
+        @keyframes scanline-sweep {
+            0% { transform: translateY(-100%); opacity: 0; }
+            10% { opacity: 0.6; }
+            90% { opacity: 0.6; }
+            100% { transform: translateY(100vh); opacity: 0; }
+        }
+        .scanline {
+            position: absolute; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--amber), transparent);
+            animation: scanline-sweep 6s linear infinite;
+            pointer-events: none;
+        }
+
+        @keyframes fade-up {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .reveal { opacity: 0; }
+        .reveal.in-view { animation: fade-up 0.7s ease-out forwards; }
+
+        /* Scan-area overlay: fixed box representing the 256x256 patch the model receives */
+        #scanBox {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px; height: 200px;
+            border: 2px dashed var(--amber);
+            box-shadow: 0 0 0 2000px rgba(11,15,20,0.35);
+            pointer-events: none;
+            z-index: 500;
+            border-radius: 4px;
+        }
+        #scanBox::before {
+            content: "SCAN AREA · 256×256px";
+            position: absolute;
+            top: -26px; left: 50%; transform: translateX(-50%);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; letter-spacing: 0.08em;
+            color: var(--amber);
+            background: rgba(11,15,20,0.85);
+            padding: 2px 8px; border-radius: 4px;
+            white-space: nowrap;
+        }
+        #scanBox::after {
+            content: "";
+            position: absolute; inset: -2px;
+            border: 1px solid rgba(217,122,46,0.3);
+            border-radius: 6px;
+        }
+        .corner { position: absolute; width: 14px; height: 14px; border-color: var(--amber); }
+        .corner-tl { top: -2px; left: -2px; border-top: 2px solid; border-left: 2px solid; }
+        .corner-tr { top: -2px; right: -2px; border-top: 2px solid; border-right: 2px solid; }
+        .corner-bl { bottom: -2px; left: -2px; border-bottom: 2px solid; border-left: 2px solid; }
+        .corner-br { bottom: -2px; right: -2px; border-bottom: 2px solid; border-right: 2px solid; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .scanline { display: none; }
+            .reveal { opacity: 1; animation: none !important; }
+        }
     </style>
 </head>
-<body class="bg-slate-900 text-white min-h-screen flex flex-col p-6 md:p-10">
+<body class="text-white min-h-screen">
 
-    <div class="max-w-7xl mx-auto w-full flex-grow flex flex-col">
-        <!-- Header -->
-        <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-                <h1 class="text-3xl font-extrabold text-amber-500 tracking-wide">Egypt Archaeological Monitor</h1>
-                <p class="text-slate-400 text-sm md:text-base">Real-Time Satellite AI Looting Detection & Monitoring System</p>
+    <!-- ============ HERO ============ -->
+    <section class="relative overflow-hidden border-b border-white/5">
+        <div class="scanline"></div>
+        <div class="absolute inset-0 opacity-[0.04]" style="background-image: radial-gradient(circle at 1px 1px, white 1px, transparent 0); background-size: 24px 24px;"></div>
+
+        <div class="max-w-6xl mx-auto px-6 md:px-10 pt-20 pb-16 relative">
+            <div class="inline-flex items-center gap-2 font-mono text-[11px] tracking-widest text-amber-500/90 mb-6 uppercase">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                Remote Sensing · Cultural Heritage Protection
             </div>
-            <div id="status" class="bg-slate-800 px-5 py-2.5 rounded-full text-sm font-semibold border border-slate-700 tracking-wide transition-all duration-300">
+            <h1 class="font-display text-4xl md:text-6xl font-bold leading-[1.05] mb-6 max-w-3xl">
+                Watching Egypt's heritage sites <span style="color: var(--amber);">from orbit.</span>
+            </h1>
+            <p class="text-slate-400 text-base md:text-lg max-w-2xl leading-relaxed mb-10">
+                Since the 2011 security vacuum, illegal excavation has scarred archaeological sites across Egypt —
+                looting pits carved into the desert, visible from space but invisible to anyone not looking.
+                This project trains a satellite image classifier to spot them automatically, and puts a live
+                scanner in your browser.
+            </p>
+            <div class="flex flex-wrap gap-8 font-mono text-xs text-slate-500">
+                <div><span class="text-2xl font-display font-semibold text-white block">508</span>labeled image patches</div>
+                <div><span class="text-2xl font-display font-semibold text-white block">~83.5%</span>validation accuracy</div>
+                <div><span class="text-2xl font-display font-semibold text-white block">5-fold</span>ResNet-50 ensemble</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============ HOW IT WORKS ============ -->
+    <section class="border-b border-white/5 bg-[var(--panel)]/40">
+        <div class="max-w-6xl mx-auto px-6 md:px-10 py-16">
+            <h2 class="font-display text-2xl md:text-3xl font-semibold mb-2 reveal">How the scan works</h2>
+            <p class="text-slate-500 text-sm mb-10 reveal">From a map click to a verdict, in four steps.</p>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="reveal">
+                    <div class="font-mono text-xs text-amber-500 mb-3">01 — LOCATE</div>
+                    <h3 class="font-display font-semibold mb-2">Pick a point</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">Click anywhere on the map, or jump to one of ten known high-risk sites like Saqqara or Amarna.</p>
+                </div>
+                <div class="reveal">
+                    <div class="font-mono text-xs text-amber-500 mb-3">02 — CAPTURE</div>
+                    <h3 class="font-display font-semibold mb-2">Fetch the patch</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">The backend requests a fresh 256×256px satellite image centered on that point from Mapbox.</p>
+                </div>
+                <div class="reveal">
+                    <div class="font-mono text-xs text-amber-500 mb-3">03 — INFER</div>
+                    <h3 class="font-display font-semibold mb-2">Run the ensemble</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">Five ResNet-50 models, each trained on a different fold, vote on whether the patch shows looting pits.</p>
+                </div>
+                <div class="reveal">
+                    <div class="font-mono text-xs text-amber-500 mb-3">04 — REPORT</div>
+                    <h3 class="font-display font-semibold mb-2">Get a verdict</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">A Looted / Not Looted call with confidence scores, using a threshold tuned to minimize missed sites.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============ THE PROBLEM ============ -->
+    <section class="border-b border-white/5">
+        <div class="max-w-6xl mx-auto px-6 md:px-10 py-16 grid grid-cols-1 md:grid-cols-5 gap-10">
+            <div class="md:col-span-2 reveal">
+                <div class="font-mono text-[11px] tracking-widest text-amber-500/90 uppercase mb-3">The problem</div>
+                <h2 class="font-display text-2xl md:text-3xl font-semibold leading-tight">A crime scene the size of a country, checked one satellite image at a time.</h2>
+            </div>
+            <div class="md:col-span-3 space-y-4 text-slate-400 text-sm md:text-base leading-relaxed reveal">
+                <p>
+                    In the security vacuum following Egypt's 2011 revolution, looting of archaeological sites surged
+                    sharply. Looters dig shafts and trenches straight into unexcavated ground, searching for
+                    antiquities to sell — leaving behind a signature that satellite imagery can't hide: clusters of
+                    dark, irregular pits scarring the desert floor around known and undiscovered sites.
+                </p>
+                <p>
+                    Egypt has thousands of archaeological sites and only a fraction of the personnel needed to
+                    physically monitor them. Heritage authorities and researchers can watch satellite feeds, but doing
+                    it manually — scrolling through Google Earth tile by tile — doesn't scale. This project asks a
+                    narrower, answerable question: can a model trained on confirmed looting imagery flag new pits
+                    automatically, fast enough to matter?
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============ DATASET & METHODOLOGY ============ -->
+    <section class="border-b border-white/5 bg-[var(--panel)]/40">
+        <div class="max-w-6xl mx-auto px-6 md:px-10 py-16">
+            <div class="font-mono text-[11px] tracking-widest text-amber-500/90 uppercase mb-3 reveal">Dataset &amp; methodology</div>
+            <h2 class="font-display text-2xl md:text-3xl font-semibold mb-10 reveal">Built from confirmed sites, not synthetic data.</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                <div class="reveal">
+                    <h3 class="font-display font-semibold mb-2 text-white">Sourcing</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Every image patch was captured from Google Earth Pro's historical imagery archive, spanning
+                        2010–2016 — the period covering the sharpest rise in illegal excavation. Historical imagery
+                        lets the same location be compared before and after known looting events.
+                    </p>
+                </div>
+                <div class="reveal">
+                    <h3 class="font-display font-semibold mb-2 text-white">Locations</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Focused on three of Egypt's most heavily documented and most heavily looted necropolis regions:
+                        <span class="text-slate-300">Dahshur</span>, <span class="text-slate-300">Lisht</span>, and
+                        <span class="text-slate-300">Saqqara</span> — sites with enough confirmed cases to build a
+                        reliable positive class.
+                    </p>
+                </div>
+                <div class="reveal">
+                    <h3 class="font-display font-semibold mb-2 text-white">Labels</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        508 labeled patches split into two classes — <span class="text-slate-300">Looted</span>
+                        (clear evidence of excavation pits) and <span class="text-slate-300">Not Looted</span>
+                        (pristine terrain or natural desert features) — published openly on Kaggle for reuse.
+                    </p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 pt-8 border-t border-white/5">
+                <div class="reveal">
+                    <h3 class="font-display font-semibold mb-2 text-white">Architecture</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        A 5-fold ensemble of ResNet-50 classifiers. Each fold trains on a different split of the data;
+                        at inference time all five vote, which smooths out the variance any single model would carry
+                        from a dataset this size.
+                    </p>
+                </div>
+                <div class="reveal">
+                    <h3 class="font-display font-semibold mb-2 text-white">Threshold tuning</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        The default 0.5 decision boundary was deliberately moved to <span class="font-mono text-amber-500">0.4007</span>,
+                        chosen to reduce false negatives — in site protection, a missed looting event is a worse
+                        outcome than a false alarm worth double-checking.
+                    </p>
+                </div>
+                <div class="reveal">
+                    <h3 class="font-display font-semibold mb-2 text-white">Validation</h3>
+                    <p class="text-sm text-slate-400 leading-relaxed">
+                        Evaluated with out-of-fold cross-validation across 504 held-out samples, so every reported
+                        number reflects performance on data each fold never trained on.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============ RESULTS ============ -->
+    <section class="border-b border-white/5">
+        <div class="max-w-6xl mx-auto px-6 md:px-10 py-16">
+            <div class="font-mono text-[11px] tracking-widest text-amber-500/90 uppercase mb-3 reveal">Results</div>
+            <h2 class="font-display text-2xl md:text-3xl font-semibold mb-10 reveal">421 of 504 validation samples classified correctly.</h2>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
+                <div class="grid grid-cols-2 gap-4 reveal">
+                    <div class="bg-[var(--panel)] border border-white/5 rounded-xl p-5">
+                        <div class="font-mono text-3xl font-semibold text-white">83.5%</div>
+                        <div class="text-xs text-slate-500 mt-1">Accuracy (421 / 504)</div>
+                    </div>
+                    <div class="bg-[var(--panel)] border border-white/5 rounded-xl p-5">
+                        <div class="font-mono text-3xl font-semibold text-white">83.5%</div>
+                        <div class="text-xs text-slate-500 mt-1">Precision (Looted)</div>
+                    </div>
+                    <div class="bg-[var(--panel)] border border-white/5 rounded-xl p-5">
+                        <div class="font-mono text-3xl font-semibold text-white">84.4%</div>
+                        <div class="text-xs text-slate-500 mt-1">Recall (Looted)</div>
+                    </div>
+                    <div class="bg-[var(--panel)] border border-white/5 rounded-xl p-5">
+                        <div class="font-mono text-3xl font-semibold text-white">83.9%</div>
+                        <div class="text-xs text-slate-500 mt-1">F1-Score (Looted)</div>
+                    </div>
+                </div>
+
+                <div class="reveal">
+                    <div class="font-mono text-[11px] tracking-widest text-slate-500 uppercase mb-3">Confusion matrix @ 0.4007</div>
+                    <div class="grid grid-cols-2 gap-2 font-mono text-sm">
+                        <div class="bg-emerald-950/60 border border-emerald-800/50 rounded-lg p-4">
+                            <div class="text-2xl font-semibold text-emerald-300">204</div>
+                            <div class="text-[11px] text-emerald-500/80 mt-1">True Negatives<br>correctly cleared</div>
+                        </div>
+                        <div class="bg-red-950/40 border border-red-900/40 rounded-lg p-4">
+                            <div class="text-2xl font-semibold text-red-300">43</div>
+                            <div class="text-[11px] text-red-500/70 mt-1">False Positives<br>flagged, actually clean</div>
+                        </div>
+                        <div class="bg-red-950/40 border border-red-900/40 rounded-lg p-4">
+                            <div class="text-2xl font-semibold text-red-300">40</div>
+                            <div class="text-[11px] text-red-500/70 mt-1">False Negatives<br>looting missed</div>
+                        </div>
+                        <div class="bg-emerald-950/60 border border-emerald-800/50 rounded-lg p-4">
+                            <div class="text-2xl font-semibold text-emerald-300">217</div>
+                            <div class="text-[11px] text-emerald-500/80 mt-1">True Positives<br>correctly caught</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============ SYSTEM ARCHITECTURE ============ -->
+    <section class="border-b border-white/5 bg-[var(--panel)]/40">
+        <div class="max-w-6xl mx-auto px-6 md:px-10 py-16">
+            <div class="font-mono text-[11px] tracking-widest text-amber-500/90 uppercase mb-3 reveal">System architecture</div>
+            <h2 class="font-display text-2xl md:text-3xl font-semibold mb-10 reveal">A decoupled pipeline — no model weights ever touch source control.</h2>
+
+            <div class="reveal overflow-x-auto">
+                <div class="min-w-[640px] font-mono text-[12px] leading-relaxed text-slate-400 bg-[var(--deep)] border border-white/10 rounded-xl p-6">
+<pre class="whitespace-pre">[ Client Browser ] ──( HTTPS · Leaflet.js map )──> [ GitHub Pages ]
+         │
+         │  GET /predict-coordinates
+         ▼
+[ Google Cloud Run ]  ← FastAPI backend, Dockerized
+         │
+         ├──( downloads 5-fold weights on boot )──> [ AWS S3 ]
+         │
+         └──( fetches 256×256 satellite patch )────> [ Mapbox Static API ]</pre>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mt-10">
+                <div class="reveal">
+                    <div class="font-mono text-[11px] text-amber-500 mb-1">FRONTEND</div>
+                    <p class="text-sm text-slate-400">Static page on GitHub Pages — this map, no build step.</p>
+                </div>
+                <div class="reveal">
+                    <div class="font-mono text-[11px] text-amber-500 mb-1">BACKEND</div>
+                    <p class="text-sm text-slate-400">Dockerized FastAPI service on Google Cloud Run, stateless between requests.</p>
+                </div>
+                <div class="reveal">
+                    <div class="font-mono text-[11px] text-amber-500 mb-1">WEIGHTS</div>
+                    <p class="text-sm text-slate-400">5 ResNet-50 checkpoints held privately in AWS S3, pulled into memory on container boot.</p>
+                </div>
+                <div class="reveal">
+                    <div class="font-mono text-[11px] text-amber-500 mb-1">IMAGERY</div>
+                    <p class="text-sm text-slate-400">Mapbox Static Images API supplies the live satellite patch for each scan, on demand.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <section id="scanner" class="max-w-7xl mx-auto px-6 md:px-10 py-16">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+            <div>
+                <h2 class="font-display text-2xl md:text-3xl font-semibold text-amber-500">Live Scanner</h2>
+                <p class="text-slate-400 text-sm">Real-time satellite AI looting detection</p>
+            </div>
+            <div id="status" class="bg-slate-800 px-5 py-2.5 rounded-full text-sm font-semibold border border-slate-700 tracking-wide transition-all duration-300 font-mono">
                 Ready to Scan
             </div>
-        </header>
+        </div>
 
-        <!-- Main Layout Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-grow">
-            
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
             <!-- Map Column (Left) -->
             <div class="lg:col-span-2 flex flex-col">
-                <div id="map" class="shadow-2xl border border-slate-800 flex-grow"></div>
+                <div class="relative">
+                    <div id="map" class="shadow-2xl border border-slate-800"></div>
+                    <div id="scanBox">
+                        <span class="corner corner-tl"></span>
+                        <span class="corner corner-tr"></span>
+                        <span class="corner corner-bl"></span>
+                        <span class="corner corner-br"></span>
+                    </div>
+                </div>
+                <p class="text-[11px] font-mono text-slate-500 mt-2">
+                    The dashed box marks the approximate ground area the model will actually receive. Pan or zoom to frame your target inside it before scanning.
+                </p>
                 <div class="mt-4 flex flex-col sm:flex-row gap-4">
                     <button onclick="scanCurrentLocation()" class="flex-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 p-4 rounded-xl font-bold tracking-wider uppercase transition shadow-lg">
                         Scan Current Map View (Run AI Inference)
@@ -50,7 +374,7 @@
                     <h2 class="text-xl font-bold mb-4 border-b border-slate-700 pb-2 flex items-center gap-2">
                         <span>🏺</span> Analysis Results
                     </h2>
-                    
+
                     <!-- Prediction Card -->
                     <div id="resultCard" class="hidden">
                         <!-- Scanned Satellite Patch Preview -->
@@ -59,7 +383,7 @@
 
                         <!-- Prediction Outcome Badge -->
                         <div id="predictionBadge" class="text-center py-4 rounded-xl text-2xl font-black mb-4 uppercase tracking-widest"></div>
-                        
+
                         <!-- Probabilities and confidence bars -->
                         <div class="space-y-4">
                             <div>
@@ -95,21 +419,77 @@
             </div>
 
         </div>
-    </div>
+    </section>
+
+    <!-- ============ CREDITS / FOOTER ============ -->
+    <footer class="border-t border-white/5 mt-8">
+        <div class="max-w-6xl mx-auto px-6 md:px-10 py-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div>
+                <p class="font-mono text-[11px] tracking-widest text-slate-500 uppercase mb-2">Built by</p>
+                <p class="font-display text-lg">
+                    <a href="https://www.linkedin.com/in/abdelaziz-amr-191866347" target="_blank" rel="noopener" class="text-white hover:text-amber-500 transition underline decoration-slate-700 underline-offset-4">Abdelaziz Amr</a>
+                    <span class="text-slate-600 mx-2">&amp;</span>
+                    <a href="https://www.linkedin.com/in/bavly-george-00a300357" target="_blank" rel="noopener" class="text-white hover:text-amber-500 transition underline decoration-slate-700 underline-offset-4">Bavly George</a>
+                </p>
+                <p class="text-slate-500 text-sm mt-1">Computer Science (AI) students, Alexandria University</p>
+            </div>
+            <p class="text-slate-600 text-xs font-mono max-w-xs md:text-right">
+                Satellite imagery via Google Earth Pro &amp; Mapbox. Model and dataset released under CC BY-SA 4.0.
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Scroll-reveal for content sections. Kept in its own script tag,
+        // independent of the map/API code below, so a failure loading the
+        // Leaflet CDN (or any map error) can never leave these sections
+        // permanently invisible.
+        const revealEls = document.querySelectorAll('.reveal');
+        if ('IntersectionObserver' in window) {
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach((entry, i) => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.animationDelay = (i % 5) * 80 + 'ms';
+                        entry.target.classList.add('in-view');
+                        io.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.15 });
+            revealEls.forEach(el => io.observe(el));
+        } else {
+            // No IntersectionObserver support: show content immediately rather than hide it
+            revealEls.forEach(el => el.classList.add('in-view'));
+        }
+        // Safety net: if anything above still fails to fire (e.g. a browser
+        // quirk or a preview sandbox), force all reveal content visible after
+        // 2s so it can never be stuck blank.
+        setTimeout(() => revealEls.forEach(el => el.classList.add('in-view')), 2000);
+    </script>
 
     <script>
         // ----------------------------------------------------
         // CONFIGURATION: Replace with your live Google Cloud Run URL
         // ----------------------------------------------------
-        const API_BASE ="https://looting-detector-324769143328.us-central1.run.app"; 
+        const API_BASE ="https://looting-detector-324769143328.us-central1.run.app";
 
+        try {
+            initMap();
+        } catch (e) {
+            console.error("Map initialization failed:", e);
+            const mapEl = document.getElementById('map');
+            if (mapEl) {
+                mapEl.innerHTML = '<div class="h-full w-full flex items-center justify-center text-slate-500 text-sm font-mono p-6 text-center">Map failed to load (Leaflet CDN unreachable). The rest of the page is unaffected.</div>';
+            }
+        }
+
+        function initMap() {
         // 1. Initialize Leaflet Map centered on Saqqara/Dahshur area
         // MaxBounds restricts the user from panning completely outside of Egypt
         const map = L.map('map', {
-            maxBounds: [[21, 24], [32.5, 37]], 
+            maxBounds: [[21, 24], [32.5, 37]],
             minZoom: 6,
             maxZoom: 18
-        }).setView([29.871, 31.214], 13); 
+        }).setView([29.871, 31.214], 13);
 
         // 2. Add high-resolution Satellite Imagery Layer (ESRI World Imagery)
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
@@ -137,7 +517,7 @@
                 <div class="text-slate-900 font-sans p-1">
                     <b class="text-base">${site.name}</b><br>
                     <span class="text-xs text-slate-500">Coords: ${site.coords[0].toFixed(3)}, ${site.coords[1].toFixed(3)}</span><br>
-                    <button onclick="map.setView([${site.coords[0]}, ${site.coords[1]}], 16); map.closePopup();" 
+                    <button onclick="map.setView([${site.coords[0]}, ${site.coords[1]}], 16); map.closePopup();"
                             class="mt-2 bg-amber-600 text-white font-semibold text-xs px-3 py-1.5 rounded hover:bg-amber-700 transition">
                         Zoom to Site
                     </button>
@@ -145,34 +525,39 @@
             `);
         });
 
+        window._egyptMap = map; // exposed for scanCurrentLocation() below
+        }
+
         // 5. Main function to call the backend predict-coordinates API
         async function scanCurrentLocation() {
+            const map = window._egyptMap;
+            if (!map) { alert("Map did not load, so there is no view to scan. Reload the page or check your connection."); return; }
             const center = map.getCenter();
             const zoom = map.getZoom();
             const status = document.getElementById('status');
-            
+
             // Set visual scanning state
             status.innerText = "Scanning Satellite Feed...";
-            status.className = "bg-amber-900 text-amber-200 px-5 py-2.5 rounded-full text-sm font-semibold border border-amber-500 animate-pulse";
+            status.className = "bg-amber-900 text-amber-200 px-5 py-2.5 rounded-full text-sm font-semibold border border-amber-500 animate-pulse font-mono";
 
             try {
                 // Fetch the dynamic Mapbox patch image and run AI inference
                 const response = await fetch(`${API_BASE}/predict-coordinates?lat=${center.lat}&lon=${center.lng}&zoom=${zoom}`);
-                
+
                 if (!response.ok) {
                     throw new Error(await response.text());
                 }
-                
+
                 const data = await response.json();
                 displayResults(data);
-                
+
                 status.innerText = "Scan Complete";
-                status.className = "bg-green-950 text-green-200 px-5 py-2.5 rounded-full text-sm font-semibold border border-green-500";
+                status.className = "bg-green-950 text-green-200 px-5 py-2.5 rounded-full text-sm font-semibold border border-green-500 font-mono";
             } catch (e) {
                 console.error(e);
                 alert("Scan failed. Ensure your Google Cloud Run API is active, configured with the MAPBOX_ACCESS_TOKEN env variable, and accepting requests.");
                 status.innerText = "Ready to Scan";
-                status.className = "bg-slate-800 px-5 py-2.5 rounded-full text-sm font-semibold border border-slate-700";
+                status.className = "bg-slate-800 px-5 py-2.5 rounded-full text-sm font-semibold border border-slate-700 font-mono";
             }
         }
 
@@ -180,7 +565,7 @@
         function displayResults(data) {
             document.getElementById('placeholder').classList.add('hidden');
             document.getElementById('resultCard').classList.remove('hidden');
-            
+
             // Render the scanned satellite image patch
             const scannedImg = document.getElementById('scannedImage');
             scannedImg.src = data.scanned_image_url;
